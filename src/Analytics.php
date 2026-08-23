@@ -3,8 +3,9 @@
 namespace Gtmassey\LaravelAnalytics;
 
 use Closure;
-use Google\Analytics\Data\V1beta\BetaAnalyticsDataClient;
+use Google\Analytics\Data\V1beta\Client\BetaAnalyticsDataClient;
 use Google\Analytics\Data\V1beta\DateRange;
+use Google\Analytics\Data\V1beta\RunReportRequest;
 use Google\ApiCore\ApiException;
 use Gtmassey\LaravelAnalytics\Exceptions\InvalidPropertyIdException;
 use Gtmassey\LaravelAnalytics\Reports\Reports;
@@ -139,7 +140,23 @@ class Analytics
      */
     public function run(): ResponseData
     {
-        $reportResponse = $this->client->runReport($this->requestData->toArray());
+        // google/analytics-data >= 0.17 removed the legacy array-args client;
+        // the new surface takes a RunReportRequest protobuf message with
+        // snake_case fields, and its constructor rejects null message fields.
+        $request = new RunReportRequest(array_filter([
+            'property' => 'properties/'.$this->requestData->propertyId,
+            'date_ranges' => $this->requestData->dateRanges->all(),
+            'dimensions' => $this->requestData->dimensions->unique()->all(),
+            'metrics' => $this->requestData->metrics->unique()->all(),
+            'dimension_filter' => $this->requestData->dimensionFilter?->toRequest(),
+            'metric_filter' => $this->requestData->metricFilter?->toRequest(),
+            'return_property_quota' => $this->requestData->returnPropertyQuota,
+            'metric_aggregations' => $this->requestData->useTotals ? [\Google\Analytics\Data\V1beta\MetricAggregation::TOTAL] : [],
+            'limit' => $this->requestData->limit,
+            'offset' => $this->requestData->offset,
+        ], fn ($v) => $v !== null));
+
+        $reportResponse = $this->client->runReport($request);
 
         return ResponseData::fromReportResponse($reportResponse);
     }
